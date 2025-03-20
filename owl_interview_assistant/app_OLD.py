@@ -7,9 +7,56 @@ import queue
 import threading
 import time
 import sys
+import io
+import re
 
 # Add parent directory to path for OWL imports if needed
 sys.path.append('../')
+
+# Create a StringIO object to capture logs
+log_capture_string = io.StringIO()
+
+# Create a custom handler that writes to both the StringIO and session state
+class CaptureHandler(logging.Handler):
+    def __init__(self, string_io):
+        super().__init__()
+        self.string_io = string_io
+        self.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        
+    def emit(self, record):
+        log_entry = self.format(record)
+        
+        # Write to StringIO
+        self.string_io.write(log_entry + '\n')
+        
+        # Add to session state if available
+        if 'log_entries' in st.session_state:
+            st.session_state.log_entries.append(log_entry)
+
+# Initialize session state for logs if it doesn't exist
+if 'log_entries' not in st.session_state:
+    st.session_state.log_entries = []
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+root_logger = logging.getLogger()
+
+# Remove existing handlers to avoid duplicates
+for handler in root_logger.handlers[:]:
+    root_logger.removeHandler(handler)
+
+# Add console handler so logs are printed to console
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+root_logger.addHandler(console_handler)
+
+# Add our capture handler
+capture_handler = CaptureHandler(log_capture_string)
+root_logger.addHandler(capture_handler)
+
+# Generate initial log messages
+logging.info("🚀 Logging system initialized")
+logging.info("📋 OWL Interview Assistant starting")
 
 # Try to import the necessary functions
 try:
@@ -18,36 +65,24 @@ except ImportError as e:
     st.error(f"Error importing functions: {e}")
     st.stop()
 
-# Configure logging to capture all logs
-class StreamlitLogHandler(logging.Handler):
-    def __init__(self, log_queue):
-        super().__init__()
-        self.log_queue = log_queue
-        self.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-        
-    def emit(self, record):
-        log_entry = self.format(record)
-        self.log_queue.put(log_entry)
-
-# Create a queue to store log messages
-log_queue = queue.Queue()
-
-# Configure root logger to use our custom handler
-root_logger = logging.getLogger()
-root_logger.setLevel(logging.INFO)
-
-# Remove existing handlers to avoid duplicates
-for handler in root_logger.handlers[:]:
-    root_logger.removeHandler(handler)
-
-# Add StreamlitLogHandler to root logger
-streamlit_handler = StreamlitLogHandler(log_queue)
-root_logger.addHandler(streamlit_handler)
-
-# Also add a console handler so logs are printed to console too
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-root_logger.addHandler(console_handler)
+# Function to sanitize logs to avoid exposing sensitive information
+def sanitize_log(log_message):
+    """
+    Sanitize log messages to avoid exposing sensitive information like IPs.
+    """
+    # Simple IP address pattern matching
+    ip_pattern = r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b'
+    sanitized = re.sub(ip_pattern, '[REDACTED_IP]', log_message)
+    
+    # Redact API keys (common patterns)
+    api_key_pattern = r'(api[_-]?key|apikey|key|token)["\']?\s*[:=]\s*["\']?([a-zA-Z0-9]{20,})["\']?'
+    sanitized = re.sub(api_key_pattern, r'\1: [REDACTED_API_KEY]', sanitized, flags=re.IGNORECASE)
+    
+    # Redact URLs with authentication information
+    url_auth_pattern = r'(https?://)([^:@/]+:[^@/]+@)([^\s/]+)'
+    sanitized = re.sub(url_auth_pattern, r'\1[REDACTED_AUTH]@\3', sanitized)
+    
+    return sanitized
 
 # Configure Streamlit page
 st.set_page_config(
@@ -124,10 +159,79 @@ st.markdown("""
         color: #2196F3;
         font-weight: bold;
     }
+    .log-container {
+        background-color: #1E1E1E;
+        color: #CCCCCC;
+        font-family: 'Courier New', monospace;
+        padding: 15px;
+        border-radius: 5px;
+        height: 700px;
+        overflow-y: auto;
+        margin-top: 10px;
+        width: 100%;
+    }
+    .log-entry {
+        margin: 2px 0;
+        line-height: 1.4;
+    }
+    .log-info {
+        color: #4CAF50;
+    }
+    .log-warning {
+        color: #FFC107;
+    }
+    .log-error {
+        color: #F44336;
+    }
+    .log-tool {
+        color: #2196F3;
+    }
+    .log-agent {
+        color: #9C27B0;
+    }
+    /* Add styles for specific log types */
+    .emoji-agent {
+        color: #E91E63;
+    }
+    .emoji-tool {
+        color: #2196F3;
+    }
+    .emoji-complete {
+        color: #4CAF50;
+    }
+    .emoji-error {
+        color: #F44336;
+    }
+    .emoji-search {
+        color: #FF9800;
+    }
+    .log-header {
+        background-color: #333;
+        color: white;
+        padding: 8px 15px;
+        border-radius: 5px 5px 0 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .complete-results-box {
+        background-color: #f9f9f9;
+        border-left: 5px solid #4A56E2;
+        padding: 20px;
+        margin-top: 15px;
+        border-radius: 5px;
+        font-size: 0.95rem;
+        line-height: 1.6;
+        max-height: none;
+        overflow-y: visible;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 def main():
+    # Add a log to show main function started
+    logging.info("📊 Starting main application function")
+    
     # Header
     st.markdown("<h1 class='main-header'>🦉 OWL Interview Assistant</h1>", unsafe_allow_html=True)
     
@@ -163,7 +267,66 @@ def main():
         st.sidebar.markdown("<p class='quick-mode'>Quick Mode: Concise results, limited to 3-4 searches</p>", unsafe_allow_html=True)
     
     # Create tabs with simple names
-    tab1, tab2, tab3, tab4 = st.tabs(["Research", "Questions", "Prep Plan", "Files"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Research", "Questions", "Prep Plan", "Files", "Live Logs"])
+    
+    # Live Logs Tab with the new implementation
+    with tab5:
+        st.header("Live Agent Activity Logs")
+        st.write("Watch the OWL agents and tools in action as they work on your request.")
+        
+        # Add controls
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            auto_refresh = st.checkbox("Auto-refresh logs", value=True)
+        
+        with col2:
+            if st.button("Clear logs"):
+                # Clear logs from session state
+                st.session_state.log_entries = []
+                # Clear the StringIO
+                log_capture_string.truncate(0)
+                log_capture_string.seek(0)
+                st.rerun()
+        
+        # Create log container
+        logs_container = st.empty()
+        
+        # Process logs for display
+        formatted_logs = []
+        for log in st.session_state.log_entries:
+            # Apply color formatting based on log content
+            if "ERROR" in log:
+                formatted_logs.append(f'<div class="log-entry log-error">{log}</div>')
+            elif "WARNING" in log:
+                formatted_logs.append(f'<div class="log-entry log-warning">{log}</div>')
+            elif "🔧" in log or "🧰" in log:
+                formatted_logs.append(f'<div class="log-entry emoji-tool">{log}</div>')
+            elif "✅" in log or "🚀" in log:
+                formatted_logs.append(f'<div class="log-entry emoji-complete">{log}</div>')
+            elif "❌" in log:
+                formatted_logs.append(f'<div class="log-entry emoji-error">{log}</div>')
+            elif "🔍" in log:
+                formatted_logs.append(f'<div class="log-entry emoji-search">{log}</div>')
+            else:
+                formatted_logs.append(f'<div class="log-entry log-info">{log}</div>')
+        
+        # Display logs
+        all_logs_html = "".join(formatted_logs)
+        logs_container.markdown(f'<div class="log-container">{all_logs_html}</div>', unsafe_allow_html=True)
+        
+        # Show log count
+        st.caption(f"Total logs: {len(st.session_state.log_entries)}")
+        
+        # Add test button for debugging
+        if st.button("Generate test log"):
+            logging.info(f"🔔 Test log at {time.strftime('%H:%M:%S')}")
+            st.rerun()
+        
+        # Auto-refresh if enabled
+        if auto_refresh:
+            time.sleep(1)  # Wait for 1 second
+            st.rerun()
     
     # Research Tab
     with tab1:
@@ -176,8 +339,8 @@ def main():
         if research_btn:
             with st.spinner(f"Researching {company_name}..."):
                 try:
-                    # Log the start of research
-                    logging.info(f"Starting company research for {company_name}")
+                    # Log the start of research with emoji
+                    logging.info(f"🔍 STARTING COMPANY RESEARCH for {company_name}")
                     
                     # Progress indicator
                     progress = st.progress(0)
@@ -196,10 +359,9 @@ def main():
                     duration = time.time() - start_time
                     status.success(f"Research completed in {duration:.1f} seconds")
                     
-                    # Display results in two parts: summary and raw output
-                    st.subheader("Summary")
-                    summary = summarize_content(result["answer"])
-                    st.markdown(f"<div class='summary-box'>{summary}</div>", unsafe_allow_html=True)
+                    # Display complete results
+                    st.subheader("Complete Results")
+                    st.markdown(f"<div class='complete-results-box'>{result['answer']}</div>", unsafe_allow_html=True)
                     
                     # Show generated files if any
                     if "generated_files" in result and result["generated_files"]:
@@ -208,16 +370,15 @@ def main():
                             for file in result["generated_files"]:
                                 st.markdown(f"📄 {os.path.basename(file)}")
                     
-                    # Show the raw output (full response)
-                    with st.expander("View Raw Output"):
-                        st.markdown(f"<div class='raw-output'>{result['answer']}</div>", unsafe_allow_html=True)
+                    # Log completion with emoji
+                    logging.info(f"✅ COMPANY RESEARCH COMPLETED for {company_name} in {duration:.2f} seconds")
                     
                     # Show execution time and token usage
                     st.markdown(f"<p class='timer'>Execution time: {duration:.2f} seconds | Token usage: {result['token_count'].get('completion_token_count', 0) + result['token_count'].get('prompt_token_count', 0)}</p>", unsafe_allow_html=True)
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
-                    logging.error(f"Error in research: {str(e)}")
+                    logging.error(f"❌ ERROR IN COMPANY RESEARCH: {str(e)}")
     
     # Questions Tab
     with tab2:
@@ -235,8 +396,8 @@ def main():
         if questions_btn:
             with st.spinner(f"Generating questions for {job_role} at {company_name}..."):
                 try:
-                    # Log start
-                    logging.info(f"Starting question generation for {job_role} at {company_name}")
+                    # Log start with emoji
+                    logging.info(f"❓ GENERATING INTERVIEW QUESTIONS for {job_role} at {company_name}")
                     
                     # Progress indicator
                     progress = st.progress(0)
@@ -255,10 +416,9 @@ def main():
                     duration = time.time() - start_time
                     status.success(f"Questions generated in {duration:.1f} seconds")
                     
-                    # Display results in two parts: summary and raw output
-                    st.subheader("Summary")
-                    summary = summarize_content(result["answer"])
-                    st.markdown(f"<div class='summary-box'>{summary}</div>", unsafe_allow_html=True)
+                    # Display complete results
+                    st.subheader("Complete Results")
+                    st.markdown(f"<div class='complete-results-box'>{result['answer']}</div>", unsafe_allow_html=True)
                     
                     # Show generated files if any
                     if "generated_files" in result and result["generated_files"]:
@@ -267,16 +427,15 @@ def main():
                             for file in result["generated_files"]:
                                 st.markdown(f"📄 {os.path.basename(file)}")
                     
-                    # Show the raw output (full response)
-                    with st.expander("View Raw Output"):
-                        st.markdown(f"<div class='raw-output'>{result['answer']}</div>", unsafe_allow_html=True)
+                    # Log completion with emoji
+                    logging.info(f"✅ QUESTION GENERATION COMPLETED for {job_role} at {company_name} in {duration:.2f} seconds")
                     
                     # Show execution time and token usage
                     st.markdown(f"<p class='timer'>Execution time: {duration:.2f} seconds | Token usage: {result['token_count'].get('completion_token_count', 0) + result['token_count'].get('prompt_token_count', 0)}</p>", unsafe_allow_html=True)
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
-                    logging.error(f"Error in question generation: {str(e)}")
+                    logging.error(f"❌ ERROR IN QUESTION GENERATION: {str(e)}")
     
     # Preparation Plan Tab
     with tab3:
@@ -289,8 +448,8 @@ def main():
         if plan_btn:
             with st.spinner(f"Creating preparation plan for {job_role} at {company_name}..."):
                 try:
-                    # Log start
-                    logging.info(f"Starting preparation plan for {job_role} at {company_name}")
+                    # Log start with emoji
+                    logging.info(f"📋 CREATING PREPARATION PLAN for {job_role} at {company_name}")
                     
                     # Progress indicator
                     progress = st.progress(0)
@@ -309,10 +468,9 @@ def main():
                     duration = time.time() - start_time
                     status.success(f"Plan created in {duration:.1f} seconds")
                     
-                    # Display results in two parts: summary and raw output
-                    st.subheader("Summary")
-                    summary = summarize_content(result["answer"])
-                    st.markdown(f"<div class='summary-box'>{summary}</div>", unsafe_allow_html=True)
+                    # Display complete results
+                    st.subheader("Complete Results")
+                    st.markdown(f"<div class='complete-results-box'>{result['answer']}</div>", unsafe_allow_html=True)
                     
                     # Show generated files if any
                     if "generated_files" in result and result["generated_files"]:
@@ -321,16 +479,15 @@ def main():
                             for file in result["generated_files"]:
                                 st.markdown(f"📄 {os.path.basename(file)}")
                     
-                    # Show the raw output (full response)
-                    with st.expander("View Raw Output"):
-                        st.markdown(f"<div class='raw-output'>{result['answer']}</div>", unsafe_allow_html=True)
+                    # Log completion with emoji
+                    logging.info(f"✅ PREPARATION PLAN COMPLETED for {job_role} at {company_name} in {duration:.2f} seconds")
                     
                     # Show execution time and token usage
                     st.markdown(f"<p class='timer'>Execution time: {duration:.2f} seconds | Token usage: {result['token_count'].get('completion_token_count', 0) + result['token_count'].get('prompt_token_count', 0)}</p>", unsafe_allow_html=True)
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
-                    logging.error(f"Error in preparation plan: {str(e)}")
+                    logging.error(f"❌ ERROR IN PREPARATION PLAN: {str(e)}")
     
     # Files Tab
     with tab4:
@@ -390,42 +547,11 @@ def main():
                 st.info("No files have been generated yet. Use the tools in other tabs to create files.")
         else:
             st.info("The interview_prep directory will be created when you generate your first document.")
-            
-    # Footer
-    st.markdown("---")
-    with st.expander("View System Logs"):
-        logs_output = st.empty()
-        
-        # Function to get logs from queue
-        def get_logs():
-            logs = []
-            while not log_queue.empty():
-                try:
-                    log = log_queue.get_nowait()
-                    logs.append(log)
-                except queue.Empty:
-                    break
-            return logs
-        
-        # Display logs
-        logs = get_logs()
-        if logs:
-            logs_output.code("\n".join(logs), language="text")
-        else:
-            logs_output.info("No logs available yet.")
-        
-        # Add refresh button
-        if st.button("Refresh Logs"):
-            logs = get_logs()
-            if logs:
-                logs_output.code("\n".join(logs), language="text")
-            else:
-                logs_output.info("No logs available yet.")
 
 if __name__ == "__main__":
     try:
-        logging.info("Starting OWL Interview Assistant application")
+        logging.info("🚀 STARTING OWL Interview Assistant application")
         main()
     except Exception as e:
         st.error(f"Application error: {str(e)}")
-        logging.error(f"Application error: {str(e)}")
+        logging.error(f"❌ APPLICATION ERROR: {str(e)}")
