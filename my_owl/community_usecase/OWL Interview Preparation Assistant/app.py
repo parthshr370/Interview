@@ -7,7 +7,13 @@ import time
 import sys
 
 # Add parent directory to path for OWL imports
-sys.path.append('../')
+sys.path.append('.')
+# Replace environment variables with secrets
+
+# Set environment variables from Streamlit secrets
+os.environ["OPENROUTER_API_KEY"] = st.secrets.get("OPENROUTER_API_KEY", "")
+os.environ["GOOGLE_API_KEY"] = st.secrets.get("GOOGLE_API_KEY", "")
+os.environ["SEARCH_ENGINE_ID"] = st.secrets.get("SEARCH_ENGINE_ID", "")
 
 try:
     from main import research_company, generate_interview_questions, create_interview_prep_plan
